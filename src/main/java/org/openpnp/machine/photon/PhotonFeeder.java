@@ -19,6 +19,7 @@ import org.openpnp.model.Configuration;
 import org.openpnp.model.Location;
 import org.openpnp.model.Solutions;
 import org.openpnp.spi.*;
+import org.openpnp.util.MovableUtils;
 import org.pmw.tinylog.Logger;
 import org.simpleframework.xml.Attribute;
 import org.simpleframework.xml.Element;
@@ -273,11 +274,23 @@ public class PhotonFeeder extends ReferenceFeeder {
                 continue;  // We'll initialize it on a retry
             }
 
-            int timeToWaitMillis = moveFeedForwardResponse.expectedTimeToFeed;
+         // Opportunistically move the nozzle to just above the pick location while feeding
+            Location pickLocation = getPickLocation();
 
-            for (int j = 0; j < 3; j++) {
+         // get the planned placement
+            if(pickLocation != null && nozzle != null) {
+                MovableUtils.moveToLocationAtSafeZ(nozzle, pickLocation.derive(null, null, Double.NaN, 0.));
+            }
+
+            final int timeToWaitMillis = photonProperties.getFeedStatusPollTimeout();
+            final long startTime = System.currentTimeMillis();
+
+            while(System.currentTimeMillis() - startTime < timeToWaitMillis) {
+                Logger.debug("Waiting for feeder to finish feeding");
+                
+       
                 //noinspection BusyWait
-                Thread.sleep(timeToWaitMillis);
+                Thread.sleep(photonProperties.getFeedStatusPollInterval());
 
                 MoveFeedStatus moveFeedStatus = new MoveFeedStatus(slotAddress);
                 MoveFeedStatus.Response moveFeedStatusResponse = moveFeedStatus.send(photonBus);
@@ -287,6 +300,7 @@ public class PhotonFeeder extends ReferenceFeeder {
                 }
 
                 if (moveFeedStatusResponse.error == ErrorTypes.NONE) {
+                	Logger.debug("Feeder finished feeding");
                     return;
                 } else if (moveFeedStatusResponse.error == ErrorTypes.COULD_NOT_REACH) {
                     throw new FeedFailureException("Feeder could not reach its destination.");
