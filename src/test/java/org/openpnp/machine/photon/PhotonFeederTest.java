@@ -109,7 +109,7 @@ public class PhotonFeederTest {
         assertTrue(actuator instanceof ReferenceActuator);
         assertEquals(PhotonFeeder.ACTUATOR_DATA_NAME, actuator.getName());
 
-        Actuator machineActuator = machine.getActuatorByName(PhotonFeeder.ACTUATOR_DATA_NAME);
+        Actuator machineActuator = machine.getHeadByName("H1").getActuatorByName(PhotonFeeder.ACTUATOR_DATA_NAME);
         assertSame(actuator, machineActuator);
     }
 

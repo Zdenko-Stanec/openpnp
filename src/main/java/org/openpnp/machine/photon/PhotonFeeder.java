@@ -19,7 +19,6 @@ import org.openpnp.model.Configuration;
 import org.openpnp.model.Location;
 import org.openpnp.model.Solutions;
 import org.openpnp.spi.*;
-import org.openpnp.util.MovableUtils;
 import org.pmw.tinylog.Logger;
 import org.simpleframework.xml.Attribute;
 import org.simpleframework.xml.Element;
@@ -213,12 +212,20 @@ public class PhotonFeeder extends ReferenceFeeder {
             initialized = true;
         }
     }
+    
+    
+    
+    
+    
+    
 
     static Actuator getDataActuator() {
         Machine machine = Configuration.get().getMachine();
 
-        Actuator actuator = machine.getActuatorByName(ACTUATOR_DATA_NAME);
+        // Retrieve actuator from H1 if it exists
+        Actuator actuator = machine.getHeadByName("H1").getActuatorByName(ACTUATOR_DATA_NAME);
 
+        // If actuator doesn't exist, create it and add it to H1
         if (actuator == null) {
             actuator = createDefaultActuator(machine);
         }
@@ -226,29 +233,46 @@ public class PhotonFeeder extends ReferenceFeeder {
         return actuator;
     }
 
+    
     private static Actuator createDefaultActuator(Machine machine) {
-        Actuator actuator;
-        actuator = new ReferenceActuator();
+        Actuator actuator = new ReferenceActuator();
         actuator.setName(ACTUATOR_DATA_NAME);
 
+        // Locate the H1 head
+        Head headH1 = machine.getHeadByName("H1");
+        if (headH1 == null) {
+            throw new IllegalStateException("Head 'H1' not found in the machine configuration.");
+        }
+
+        // Assign the GCode driver to the actuator
         for (Driver driver : machine.getDrivers()) {
-            if(! (driver instanceof GcodeDriver)) {
+            if (!(driver instanceof GcodeDriver)) {
                 continue;
             }
             GcodeDriver gcodeDriver = (GcodeDriver) driver;
             gcodeDriver.setCommand(actuator, GcodeDriver.CommandType.ACTUATOR_READ_COMMAND, "M485 {Value}");
             gcodeDriver.setCommand(actuator, GcodeDriver.CommandType.ACTUATOR_READ_REGEX, "rs485-reply: (?<Value>.*)");
-            break;  // Only set this on 1 GCodeDriver
+            break; // Only set this on 1 GCodeDriver
         }
 
+        // Add the actuator to the H1 head
         try {
-            machine.addActuator(actuator);
+            headH1.addActuator(actuator);
         } catch (Exception exception) {
-            exception.printStackTrace(); // TODO Probably need to log this, figure out why it can happen first
+            exception.printStackTrace(); // TODO: Log this instead of printing
         }
+
         return actuator;
     }
 
+
+
+    
+    
+    
+    
+    
+    
     @Override
     public void feed(Nozzle nozzle) throws Exception {
         for (int i = 0; i <= photonProperties.getFeederCommunicationMaxRetry(); i++) {
@@ -274,23 +298,11 @@ public class PhotonFeeder extends ReferenceFeeder {
                 continue;  // We'll initialize it on a retry
             }
 
-         // Opportunistically move the nozzle to just above the pick location while feeding
-            Location pickLocation = getPickLocation();
+            int timeToWaitMillis = moveFeedForwardResponse.expectedTimeToFeed;
 
-         // get the planned placement
-            if(pickLocation != null && nozzle != null) {
-                MovableUtils.moveToLocationAtSafeZ(nozzle, pickLocation.derive(null, null, Double.NaN, 0.));
-            }
-
-            final int timeToWaitMillis = photonProperties.getFeedStatusPollTimeout();
-            final long startTime = System.currentTimeMillis();
-
-            while(System.currentTimeMillis() - startTime < timeToWaitMillis) {
-                Logger.debug("Waiting for feeder to finish feeding");
-                
-       
+            for (int j = 0; j < 3; j++) {
                 //noinspection BusyWait
-                Thread.sleep(photonProperties.getFeedStatusPollInterval());
+                Thread.sleep(timeToWaitMillis);
 
                 MoveFeedStatus moveFeedStatus = new MoveFeedStatus(slotAddress);
                 MoveFeedStatus.Response moveFeedStatusResponse = moveFeedStatus.send(photonBus);
@@ -300,7 +312,6 @@ public class PhotonFeeder extends ReferenceFeeder {
                 }
 
                 if (moveFeedStatusResponse.error == ErrorTypes.NONE) {
-                	Logger.debug("Feeder finished feeding");
                     return;
                 } else if (moveFeedStatusResponse.error == ErrorTypes.COULD_NOT_REACH) {
                     throw new FeedFailureException("Feeder could not reach its destination.");

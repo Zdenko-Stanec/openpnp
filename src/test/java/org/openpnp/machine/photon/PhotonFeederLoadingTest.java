@@ -9,6 +9,7 @@ import org.openpnp.model.Configuration;
 import org.openpnp.spi.Actuator;
 import org.openpnp.spi.Driver;
 import org.openpnp.spi.Machine;
+import org.openpnp.spi.*;
 
 import java.io.File;
 import java.util.List;
@@ -49,7 +50,7 @@ public class PhotonFeederLoadingTest {
         Configuration.get().load();
         Machine machine = Configuration.get().getMachine();
 
-        Actuator actuator = machine.getActuatorByName(PhotonFeeder.ACTUATOR_DATA_NAME);
+        Actuator actuator = machine.getHeadByName("H1").getActuatorByName(PhotonFeeder.ACTUATOR_DATA_NAME);
         assertNotNull(actuator);
         assertTrue(actuator instanceof ReferenceActuator);
         assertEquals(PhotonFeeder.ACTUATOR_DATA_NAME, actuator.getName());
@@ -61,15 +62,28 @@ public class PhotonFeederLoadingTest {
         Machine machine = Configuration.get().getMachine();
 
         // First remove the Reference Actuator that was made when we loaded the configuration
-        machine.removeActuator(machine.getActuatorByName(PhotonFeeder.ACTUATOR_DATA_NAME));
+        Head headH1 = machine.getHeadByName("H1");
+        assertNotNull(headH1, "Head H1 should exist");
 
+        Actuator existingActuator = headH1.getActuatorByName(PhotonFeeder.ACTUATOR_DATA_NAME);
+        if (existingActuator != null) {
+            headH1.removeActuator(existingActuator);  // Remove actuator if it exists
+        }
+
+        // Add a new Gcode driver to the machine
         GcodeDriver gcodeDriver = new GcodeDriver();
         machine.addDriver(gcodeDriver);
 
+        // Reinitialize the feeder, forcing actuator creation
         feeder = new PhotonFeeder();  // New feeder forces Actuator creation
 
-        Actuator actuator = machine.getActuatorByName(PhotonFeeder.ACTUATOR_DATA_NAME);
+        // Retrieve the actuator from the H1 head after creation
+        Actuator actuator = headH1.getActuatorByName(PhotonFeeder.ACTUATOR_DATA_NAME);
+        assertNotNull(actuator, "Actuator should exist after creation");
+
+        // Verify the GCode commands are set correctly
         assertEquals("M485 {Value}", gcodeDriver.getCommand(actuator, GcodeDriver.CommandType.ACTUATOR_READ_COMMAND));
         assertEquals("rs485-reply: (?<Value>.*)", gcodeDriver.getCommand(actuator, GcodeDriver.CommandType.ACTUATOR_READ_REGEX));
     }
+
 }
